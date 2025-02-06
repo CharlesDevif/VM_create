@@ -38,7 +38,7 @@ def run_command(command):
         return False
 
 def find_hypervisors():
-    """Détecte les hyperviseurs disponibles avec commandes et fallback vers chemins absolus."""
+    """Détecte les hyperviseurs et Docker si disponible."""
     os_type = detect_os()
     hypervisors = {}
     paths = {}
@@ -111,7 +111,29 @@ def find_hypervisors():
         else:
             print(f"{Fore.RED}[✖] Hyperviseur non trouvé : {name}{Style.RESET_ALL}")
 
+    # 4️⃣ Ajout de Docker à la détection
+    if is_docker_installed():
+        hypervisors["Docker"] = "docker"
+        paths["Docker"] = "docker"
+        print(f"{Fore.GREEN}[✔] Docker détecté{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.RED}[✖] Docker non trouvé{Style.RESET_ALL}")
+
     return hypervisors, paths  # ✅ Retourne bien 2 valeurs
+
+def is_docker_installed():
+    """Vérifie si Docker est installé et en cours d'exécution."""
+    if not check_command_exists("docker"):
+        return False  # Docker n'est pas installé
+
+    try:
+        subprocess.run(["docker", "info"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return True  # Docker fonctionne
+    except subprocess.CalledProcessError:
+        return False  # Docker installé mais service non actif
+
+
+    
 
 if __name__ == "__main__":
     detected_os = detect_os()

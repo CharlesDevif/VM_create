@@ -125,3 +125,32 @@ def vm_exists(hypervisor, name, paths):
     except subprocess.CalledProcessError:
         return False
 
+def create_docker_container(container_name, image_name, volume_name=None):
+    """Crée un conteneur Docker avec un volume optionnel."""
+    logging.info(f"🐳 Création du conteneur Docker '{container_name}' avec l'image '{image_name}'...")
+
+    cmd = ["docker", "run", "-d", "--name", container_name]
+
+    if volume_name:
+        cmd += ["-v", f"{volume_name}:/data"]
+
+    cmd.append(image_name)
+
+    try:
+        subprocess.run(cmd, check=True)
+        logging.info(f"✅ Conteneur '{container_name}' créé avec succès.")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"❌ Erreur lors de la création du conteneur : {e}")
+
+
+def is_docker_installed():
+    """Vérifie si Docker est installé et en cours d'exécution."""
+    try:
+        subprocess.run(["docker", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        subprocess.run(["docker", "info"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+    except FileNotFoundError:
+        return False
+

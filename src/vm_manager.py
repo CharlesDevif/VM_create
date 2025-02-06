@@ -4,11 +4,13 @@ import subprocess
 from os_detection import detect_os, find_hypervisors
 from utils import (
     prompt_input, get_available_memory, create_qcow2_disk, convert_disk_format,
-    list_local_isos, download_iso, vm_exists, choose_from_list
+    list_local_isos, download_iso, vm_exists, choose_from_list, is_docker_installed, create_docker_container
 )
 
 def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
     """Crée une machine virtuelle avec une meilleure gestion de l'expérience utilisateur."""
+
+    
     
     while vm_exists(hypervisor, name, paths):
         logging.warning(f"⚠️ La VM '{name}' existe déjà.")
@@ -115,7 +117,23 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
 
 if __name__ == "__main__":
     os_type = detect_os()
-    available_hypervisors, hypervisor_paths = find_hypervisors()  # ✅ Récupère bien 2 valeurs
+    available_hypervisors, hypervisor_paths = find_hypervisors()
+
+        # 1️⃣ Demander si l'utilisateur veut un conteneur Docker ou une VM
+    use_docker = prompt_input("Voulez-vous créer un conteneur Docker plutôt qu'une VM ? (oui/non)", default="non").lower() == "oui"
+
+    if use_docker:
+        if not is_docker_installed():
+            logging.critical("❌ Docker n'est pas installé ou le service n'est pas en cours d'exécution.")
+            exit(1)
+
+        container_name = prompt_input("Nom du conteneur Docker", default="mon-conteneur")
+        image_name = prompt_input("Image Docker à utiliser", default="ubuntu:latest")
+        volume_name = prompt_input("Nom du volume (ou laisser vide pour pas de volume)", default="")
+
+        create_docker_container(container_name, image_name, volume_name)
+        exit(0)  # Fin du script si Docker est utilisé
+
 
     if not available_hypervisors:
         logging.critical("❌ Aucun hyperviseur trouvé. Veuillez en installer un.")
