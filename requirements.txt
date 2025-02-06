@@ -3,3 +3,4 @@ pytest-mock
 psutil
 colorama
 prompt_toolkit
+requests
