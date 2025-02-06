@@ -92,7 +92,15 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
 
 
     elif hypervisor == "QEMU":
-        cmd_vm = [[paths["QEMU"], "-m", str(ram), "-hda", qcow2_disk, "-cdrom", iso_path, "-boot", "d"]]
+        cmd_vm = [[
+            paths["QEMU"], "-m", str(ram),
+            "-hda", qcow2_disk, "-cdrom", iso_path, "-boot", "d",
+            "-vga", "virtio",
+            "-display", "gtk,gl=on",
+            "-accel", "tcg",  # 🔄 Utilise l'émulation logicielle si KVM est absent
+            "-smp", "2",
+            "-usb", "-device", "usb-tablet"
+        ]]
 
     if dry_run:
         logging.info(f"[Dry-run] Commandes : {cmd_vm}")
