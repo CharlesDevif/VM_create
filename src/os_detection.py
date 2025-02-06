@@ -111,14 +111,6 @@ def find_hypervisors():
         else:
             print(f"{Fore.RED}[✖] Hyperviseur non trouvé : {name}{Style.RESET_ALL}")
 
-    # 4️⃣ Ajout de Docker à la détection
-    if is_docker_installed():
-        hypervisors["Docker"] = "docker"
-        paths["Docker"] = "docker"
-        print(f"{Fore.GREEN}[✔] Docker détecté{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.RED}[✖] Docker non trouvé{Style.RESET_ALL}")
-
     return hypervisors, paths  # ✅ Retourne bien 2 valeurs
 
 def is_docker_installed():

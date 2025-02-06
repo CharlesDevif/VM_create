@@ -10,8 +10,6 @@ from utils import (
 def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
     """Crée une machine virtuelle avec une meilleure gestion de l'expérience utilisateur."""
 
-    
-    
     while vm_exists(hypervisor, name, paths):
         logging.warning(f"⚠️ La VM '{name}' existe déjà.")
         
@@ -56,6 +54,7 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
             [vbox_path, "modifyvm", name, "--boot1", "dvd"],  # Priorité boot sur l'ISO
             [vbox_path, "modifyvm", name, "--biosbootmenu", "messageandmenu"],  # Active le menu BIOS
         ]
+
     elif hypervisor == "VMware":
         vmware_path = paths["VMware"]
         converted_disk = convert_disk_format(qcow2_disk, f"{name}.vmdk", "vmdk")
@@ -91,8 +90,6 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
         # 2️⃣ Démarrer la VM avec vmrun
         cmd_vm = [[vmware_path, "-T", "ws", "start", vmx_path]]
 
-
-
     elif hypervisor == "QEMU":
         cmd_vm = [[
             paths["QEMU"], "-m", str(ram),
@@ -117,9 +114,8 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
 
 if __name__ == "__main__":
     os_type = detect_os()
-    available_hypervisors, hypervisor_paths = find_hypervisors()
 
-        # 1️⃣ Demander si l'utilisateur veut un conteneur Docker ou une VM
+    # 1️⃣ Demander si l'utilisateur veut un conteneur Docker ou une VM
     use_docker = prompt_input("Voulez-vous créer un conteneur Docker plutôt qu'une VM ? (oui/non)", default="non").lower() == "oui"
 
     if use_docker:
@@ -134,6 +130,8 @@ if __name__ == "__main__":
         create_docker_container(container_name, image_name, volume_name)
         exit(0)  # Fin du script si Docker est utilisé
 
+    # 2️⃣ Recherche des hyperviseurs seulement si Docker n'est pas choisi
+    available_hypervisors, hypervisor_paths = find_hypervisors()
 
     if not available_hypervisors:
         logging.critical("❌ Aucun hyperviseur trouvé. Veuillez en installer un.")
