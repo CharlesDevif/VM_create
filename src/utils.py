@@ -3,6 +3,8 @@ import subprocess
 import logging
 import psutil
 import requests
+from colorama import Fore, Style
+
 
 # Configuration du logging
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -125,22 +127,34 @@ def vm_exists(hypervisor, name, paths):
     except subprocess.CalledProcessError:
         return False
 
-def create_docker_container(container_name, image_name, volume_name=None):
-    """Crée un conteneur Docker avec un volume optionnel."""
-    logging.info(f"🐳 Création du conteneur Docker '{container_name}' avec l'image '{image_name}'...")
+def create_docker_container(container_name, image_name, volume_name=""):
+    """Crée un conteneur Docker et s'assure qu'il reste actif."""
+    print(f"{Fore.CYAN}🚀 Création du conteneur Docker '{container_name}'...{Style.RESET_ALL}")
 
+    # Vérifie si un conteneur du même nom existe déjà
+    subprocess.run(["docker", "rm", "-f", container_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    # Commande de base
     cmd = ["docker", "run", "-d", "--name", container_name]
 
+    # Ajoute un volume si spécifié
     if volume_name:
-        cmd += ["-v", f"{volume_name}:/data"]
+        cmd.extend(["-v", f"{volume_name}:/data"])
 
+    # Ajoute l’image
     cmd.append(image_name)
 
-    try:
-        subprocess.run(cmd, check=True)
-        logging.info(f"✅ Conteneur '{container_name}' créé avec succès.")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"❌ Erreur lors de la création du conteneur : {e}")
+    # Ajoute un processus qui garde le conteneur en vie
+    cmd.extend(["/bin/sh", "-c", "sleep infinity"])
+
+    # Exécute la commande
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    if result.returncode == 0:
+        print(f"{Fore.GREEN}✅ Conteneur '{container_name}' créé et en cours d'exécution.{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.RED}❌ Erreur lors de la création du conteneur :{Style.RESET_ALL}")
+        print(result.stderr)
 
 
 def is_docker_installed():
