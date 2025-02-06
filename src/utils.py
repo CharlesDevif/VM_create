@@ -124,4 +124,4 @@ def vm_exists(hypervisor, name, paths):
 
     except subprocess.CalledProcessError:
         return False
-
+        

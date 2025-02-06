@@ -1,7 +1,7 @@
 import logging
 import os
 import subprocess
-from os_detection import detect_os, find_hypervisors
+from os_detection import detect_os, find_hypervisors, find_docker
 from utils import (
     prompt_input, get_available_memory, create_qcow2_disk, convert_disk_format,
     list_local_isos, download_iso, vm_exists, choose_from_list
@@ -92,7 +92,15 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
 
 
     elif hypervisor == "QEMU":
-        cmd_vm = [[paths["QEMU"], "-m", str(ram), "-hda", qcow2_disk, "-cdrom", iso_path, "-boot", "d"]]
+        cmd_vm = [[
+            paths["QEMU"], "-m", str(ram),
+            "-hda", qcow2_disk, "-cdrom", iso_path, "-boot", "d",
+            "-vga", "virtio",
+            "-display", "gtk,gl=on",
+            "-accel", "tcg",  # 🔄 Utilise l'émulation logicielle si KVM est absent
+            "-smp", "2",
+            "-usb", "-device", "usb-tablet"
+        ]]
 
     if dry_run:
         logging.info(f"[Dry-run] Commandes : {cmd_vm}")
@@ -108,11 +116,17 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
 if __name__ == "__main__":
     os_type = detect_os()
     available_hypervisors, hypervisor_paths = find_hypervisors()  # ✅ Récupère bien 2 valeurs
+    available_docker, docker_paths = find_docker()
+
+    if not available_docker:
+        logging.critical("❌ Aucun Docker trouvé. Veuillez en installer un.")
+        exit(1)
 
     if not available_hypervisors:
         logging.critical("❌ Aucun hyperviseur trouvé. Veuillez en installer un.")
         exit(1)
 
+    docker = choose_from_list("Choisissez Docker", list(available_docker.keys()))
     hypervisor = choose_from_list("Choisissez un hyperviseur", list(available_hypervisors.keys()))
     vm_name = prompt_input("Nom de la VM", default="MaVM")
     arch = prompt_input("Architecture (x86_64, arm, etc.)", default="x86_64")

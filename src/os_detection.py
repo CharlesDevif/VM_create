@@ -37,6 +37,57 @@ def run_command(command):
     except FileNotFoundError:
         return False
 
+def find_docker():
+    """Détecte si Docker est disponible sur le Système d'exploitation."""
+    docker = {}
+    os_type = detect_os()
+    paths = {}
+
+    docker_checks = {
+        "Docker": {
+            "command": ["docker", "--version"],
+            "fallback": "docker",
+            "paths": {
+                "Windows": r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+                "Linux": "/usr/bin/docker",
+                "WSL": "/usr/bin/docker",
+                "MacOS": "/usr/local/bin/Docker"
+            }
+        }
+    }
+
+    print("\n🔍 Détection de Docker...\n")
+
+    for name, check in docker_checks.items():
+        found = False
+        path_used = None
+
+        # 1️⃣ Vérification avec la commande principale
+        if run_command(check["command"]):
+            found = True
+            path_used = check["command"][0]
+
+        # 2️⃣ Si échec, tenter avec `shutil.which`
+        if not found and check["fallback"] and check_command_exists(check["fallback"]):
+            found = True
+            path_used = check["fallback"]
+
+        # 3️⃣ Si toujours échec, essayer les chemins absolus
+        if not found and os_type in check["paths"]:
+            abs_path = check["paths"][os_type]
+            if abs_path and os.path.exists(abs_path):
+                found = True
+                path_used = abs_path
+
+        if found:
+            docker[name] = path_used
+            paths[name] = path_used
+            print(f"{Fore.GREEN}[✔] Docker détecté : {name} ({path_used}){Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}[✖] Docker non trouvé : {name}{Style.RESET_ALL}")
+
+    return docker, paths  # ✅ Retourne bien 2 valeurs
+
 def find_hypervisors():
     """Détecte les hyperviseurs disponibles avec commandes et fallback vers chemins absolus."""
     os_type = detect_os()
