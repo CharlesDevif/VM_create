@@ -1,4 +1,6 @@
 venv/
+env/
+wslEnv/
 __pycache__/
 pytest_cache/
 vmware.log
