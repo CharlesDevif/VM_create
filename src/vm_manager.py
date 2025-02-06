@@ -1,6 +1,8 @@
 import logging
 import os
 import subprocess
+import json
+import argparse
 from colorama import Fore, Style, init
 from os_detection import detect_os, find_hypervisors
 from utils import (
@@ -10,6 +12,20 @@ from utils import (
 
 # Initialisation de Colorama pour Windows
 init(autoreset=True)
+
+def load_config(file_path="config.json"):
+    """Charge la configuration depuis un fichier JSON si `--batch` est utilisé."""
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
+            return json.load(file)
+    return {}
+
+def parse_arguments():
+    """Analyse les arguments de la ligne de commande."""
+    parser = argparse.ArgumentParser(description="Gestionnaire de VMs et conteneurs Docker.")
+    parser.add_argument("--batch", action="store_true", help="Mode automatique avec configuration prédéfinie.")
+    parser.add_argument("--config", type=str, default="config.json", help="Chemin du fichier de configuration JSON.")
+    return parser.parse_args()
 
 def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
     """Crée une machine virtuelle avec une meilleure gestion de l'expérience utilisateur."""
@@ -50,13 +66,9 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
         cmd_vm = [
             [vbox_path, "createvm", "--name", name, "--register"],
             [vbox_path, "modifyvm", name, "--memory", str(ram)],
-            [vbox_path, "modifyvm", name, "--ioapic", "off"],  # IO-APIC doit rester activé
-            [vbox_path, "modifyvm", name, "--apic", "on"],  # APIC doit rester activé
             [vbox_path, "storagectl", name, "--name", "SATA Controller", "--add", "sata", "--controller", "IntelAhci"],
             [vbox_path, "storageattach", name, "--storagectl", "SATA Controller", "--port", "0", "--device", "0", "--type", "hdd", "--medium", converted_disk],
             [vbox_path, "storageattach", name, "--storagectl", "SATA Controller", "--port", "1", "--device", "0", "--type", "dvddrive", "--medium", iso_path],
-            [vbox_path, "modifyvm", name, "--boot1", "dvd"],  # Priorité boot sur l'ISO
-            [vbox_path, "modifyvm", name, "--biosbootmenu", "messageandmenu"],  # Active le menu BIOS
         ]
 
     elif hypervisor == "QEMU":
@@ -82,45 +94,75 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
 
 
 if __name__ == "__main__":
-    print(f"\n{Fore.CYAN}🌍 Détection du système d'exploitation...{Style.RESET_ALL}")
+    args = parse_arguments()
+
+    # ** Charger la config SEULEMENT si `--batch` est activé **
+    config = load_config(args.config) if args.batch else {}
+
     os_type = detect_os()
 
-    # Demander si l'utilisateur veut un conteneur Docker ou une VM
-    use_docker = prompt_input(f"\n{Fore.YELLOW}Voulez-vous créer un conteneur Docker plutôt qu'une VM ? (oui/non){Style.RESET_ALL}", default="non").lower() == "oui"
+    # ** Étape 1 : Choix entre Docker et Hyperviseur (toujours demandé) **
+    mode = choose_from_list(
+        f"{Fore.YELLOW}Voulez-vous créer une VM ou un conteneur Docker ?{Style.RESET_ALL}",
+        ["docker", "hypervisor"]
+    )
 
-    if use_docker:
+    if mode == "docker":
+        # Vérifie si Docker est installé
         if not is_docker_installed():
             print(f"{Fore.RED}❌ Docker n'est pas installé ou le service n'est pas en cours d'exécution.{Style.RESET_ALL}")
             exit(1)
 
-        container_name = prompt_input(f"{Fore.CYAN}Nom du conteneur Docker{Style.RESET_ALL}", default="mon-conteneur")
-        image_name = prompt_input(f"{Fore.CYAN}Image Docker à utiliser{Style.RESET_ALL}", default="ubuntu:latest")
-        volume_name = prompt_input(f"{Fore.CYAN}Nom du volume (laisser vide pour pas de volume){Style.RESET_ALL}", default="")
+        # ** Étape 2A : Chargement de la config Docker SEULEMENT en mode `--batch` **
+        if args.batch:
+            container_name = config.get("docker", {}).get("container_name", "mon-conteneur")
+            image_name = config.get("docker", {}).get("image_name", "ubuntu:latest")
+            volume_name = config.get("docker", {}).get("volume_name", "")
+        else:
+            container_name = prompt_input(f"{Fore.CYAN}Nom du conteneur Docker{Style.RESET_ALL}", default="mon-conteneur")
+            image_name = prompt_input(f"{Fore.CYAN}Image Docker à utiliser{Style.RESET_ALL}", default="ubuntu:latest")
+            volume_name = prompt_input(f"{Fore.CYAN}Nom du volume (laisser vide pour pas de volume){Style.RESET_ALL}", default="")
 
+        print(f"{Fore.CYAN}🚀 Lancement du conteneur Docker...{Style.RESET_ALL}")
         create_docker_container(container_name, image_name, volume_name)
         print(f"{Fore.GREEN}✅ Conteneur '{container_name}' créé avec succès !{Style.RESET_ALL}")
         exit(0)
 
-    print(f"\n{Fore.CYAN}🔍 Détection des hyperviseurs disponibles...{Style.RESET_ALL}")
-    available_hypervisors, hypervisor_paths = find_hypervisors()
+    elif mode == "hypervisor":
+        # Détection des hyperviseurs disponibles
+        available_hypervisors, hypervisor_paths = find_hypervisors()
+        if not available_hypervisors:
+            print(f"{Fore.RED}❌ Aucun hyperviseur trouvé. Veuillez en installer un.{Style.RESET_ALL}")
+            exit(1)
 
-    if not available_hypervisors:
-        print(f"{Fore.RED}❌ Aucun hyperviseur trouvé. Veuillez en installer un.{Style.RESET_ALL}")
-        exit(1)
+        # ** Étape 2B : Choix de l'hyperviseur (toujours demandé) **
+        hypervisor = choose_from_list(
+            "Choisissez un hyperviseur",
+            list(available_hypervisors.keys())
+        )
 
-    hypervisor = choose_from_list("Choisissez un hyperviseur", list(available_hypervisors.keys()))
-    vm_name = prompt_input(f"{Fore.CYAN}Nom de la VM{Style.RESET_ALL}", default="MaVM")
-    arch = prompt_input(f"{Fore.CYAN}Architecture (x86_64, arm, etc.){Style.RESET_ALL}", default="x86_64")
-    ram = prompt_input(f"{Fore.CYAN}Mémoire RAM (Mo){Style.RESET_ALL}", default=str(min(2048, get_available_memory())), validator=lambda x: int(x) if int(x) > 0 and int(x) <= get_available_memory() else ValueError("Valeur invalide."))
+        # ** Étape 3 : Chargement de la config SEULEMENT en mode `--batch` **
+        if args.batch:
+            hypervisor_config = config.get("hypervisors", {}).get(hypervisor, {})
+            vm_name = hypervisor_config.get("vm_name", "MaVM")
+            ram = hypervisor_config.get("ram", 2048)
+            iso_path = hypervisor_config.get("iso_path", "isos/ubuntu-24.04.1-live-server-amd64.iso")
+            dry_run = hypervisor_config.get("dry_run", False)
+        else:
+            vm_name = prompt_input(f"{Fore.CYAN}Nom de la VM{Style.RESET_ALL}", default="MaVM")
+            ram = int(prompt_input(f"{Fore.CYAN}Mémoire RAM (Mo){Style.RESET_ALL}", default="2048"))
+            iso_list = list_local_isos()
+            if iso_list:
+                iso_path = choose_from_list(f"{Fore.CYAN}Choisissez une ISO{Style.RESET_ALL}", iso_list)
+                iso_path = os.path.join("isos", iso_path)
+            else:
+                print(f"{Fore.YELLOW}⚠️ Aucune ISO trouvée. Téléchargement en cours...{Style.RESET_ALL}")
+                iso_path = download_iso()
+            dry_run = prompt_input(f"{Fore.CYAN}Mode simulation ? (oui/non){Style.RESET_ALL}", default="non").lower() == "oui"
 
-    iso_list = list_local_isos()
-    if iso_list:
-        iso_path = choose_from_list(f"{Fore.CYAN}Choisissez une ISO{Style.RESET_ALL}", iso_list)
-        iso_path = os.path.join("isos", iso_path)
+        print(f"{Fore.CYAN}🚀 Création de la VM '{vm_name}' sous {hypervisor}...{Style.RESET_ALL}")
+        create_vm(hypervisor, vm_name, "x86_64", ram, iso_path, hypervisor_paths, dry_run=dry_run)
+
     else:
-        print(f"{Fore.YELLOW}⚠️ Aucune ISO trouvée. Téléchargement en cours...{Style.RESET_ALL}")
-        iso_path = download_iso()
-
-    dry_run = prompt_input(f"{Fore.CYAN}Mode simulation ? (oui/non){Style.RESET_ALL}", default="non").lower() == "oui"
-
-    create_vm(hypervisor, vm_name, arch, ram, iso_path, hypervisor_paths, dry_run=dry_run)
+        print(f"{Fore.RED}❌ Erreur : Mode non reconnu. Utilisez 'docker' ou 'hypervisor'{Style.RESET_ALL}")
+        exit(1)
