@@ -176,16 +176,41 @@ if __name__ == "__main__":
 
         # Chargement de la config Docker en mode '--batch'
         if args.batch:
-            container_name = config.get("docker", {}).get("container_name", "mon-conteneur")
-            image_name = config.get("docker", {}).get("image_name", "ubuntu:latest")
-            volume_name = config.get("docker", {}).get("volume_name", "")
+            docker_config = config.get("docker", {})
+            container_name = docker_config.get("container_name", "mon-conteneur")
+            image_name = docker_config.get("image_name", "ubuntu:latest")
+            volume_name = docker_config.get("volume_name", "")
+            ports = docker_config.get("ports", {})
+            env_vars = docker_config.get("env_vars", {})
+            command = docker_config.get("command", "bash")
         else:
             container_name = prompt_input(f"{Fore.CYAN}Nom du conteneur Docker{Style.RESET_ALL}", default="mon-conteneur")
             image_name = prompt_input(f"{Fore.CYAN}Image Docker à utiliser{Style.RESET_ALL}", default="ubuntu:latest")
             volume_name = prompt_input(f"{Fore.CYAN}Nom du volume (laisser vide pour pas de volume){Style.RESET_ALL}", default="")
+            ports = {}  # Ajout des ports en mode interactif
+            while True:
+                add_port = prompt_input(f"{Fore.CYAN}Voulez-vous ajouter un port ? (oui/non){Style.RESET_ALL}", default="non").lower()
+                if add_port == "oui":
+                    host_port = prompt_input(f"{Fore.CYAN}Port hôte{Style.RESET_ALL}", required=True)
+                    container_port = prompt_input(f"{Fore.CYAN}Port conteneur{Style.RESET_ALL}", required=True)
+                    ports[host_port] = container_port
+                else:
+                    break
+
+            env_vars = {}  # Ajout des variables d'environnement en mode interactif
+            while True:
+                add_env = prompt_input(f"{Fore.CYAN}Voulez-vous ajouter une variable d'environnement ? (oui/non){Style.RESET_ALL}", default="non").lower()
+                if add_env == "oui":
+                    key = prompt_input(f"{Fore.CYAN}Nom de la variable{Style.RESET_ALL}", required=True)
+                    value = prompt_input(f"{Fore.CYAN}Valeur de la variable{Style.RESET_ALL}", required=True)
+                    env_vars[key] = value
+                else:
+                    break
+
+            command = prompt_input(f"{Fore.CYAN}Commande à exécuter dans le conteneur{Style.RESET_ALL}", default="bash")
 
         print(f"{Fore.CYAN}🚀 Lancement du conteneur Docker...{Style.RESET_ALL}")
-        create_docker_container(container_name, image_name, volume_name)
+        create_docker_container(container_name, image_name, volume_name, ports, env_vars, command)
         print(f"{Fore.GREEN}✅ Conteneur '{container_name}' créé avec succès !{Style.RESET_ALL}")
         exit(0)
 

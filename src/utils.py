@@ -127,33 +127,57 @@ def vm_exists(hypervisor, name, paths):
     except subprocess.CalledProcessError:
         return False
 
+def create_docker_container(container_name, image_name, volume_name="", ports=None, env_vars=None, command="bash"):
+    """
+    Crée un conteneur Docker de manière robuste.
 
-def create_docker_container(container_name, image_name, volume_name=""):
-    """Crée un conteneur Docker sans commande de maintien."""
+    - container_name : Nom du conteneur
+    - image_name : Image Docker à utiliser
+    - volume_name : Nom du volume (optionnel)
+    - ports : Dictionnaire de ports {hôte: conteneur} (ex: {8080: 80})
+    - env_vars : Dictionnaire des variables d'environnement {clé: valeur}
+    - command : Commande à exécuter à l'intérieur du conteneur (ex: "bash")
+
+    """
+
+
     print(f"{Fore.CYAN}🚀 Création du conteneur Docker '{container_name}'...{Style.RESET_ALL}")
 
-    # Supprime l'ancien conteneur s'il existe
+    # 🗑 Supprime le conteneur s'il existe déjà
     subprocess.run(["docker", "rm", "-f", container_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    # Commande de base pour exécuter le conteneur
-    cmd = ["docker", "run", "-d", "--name", container_name]
+    # ⚙️ Commande de base
+    cmd = ["docker", "run", "-dit", "--name", container_name]
 
-    # Ajoute un volume si spécifié
+    # 📦 Ajout du volume si spécifié
     if volume_name:
         cmd.extend(["-v", f"{volume_name}:/data"])
 
-    # Ajoute l’image
+    # 🔌 Ajout des ports s'ils sont définis
+    if ports:
+        for host_port, container_port in ports.items():
+            cmd.extend(["-p", f"{host_port}:{container_port}"])
+
+    # 🌍 Ajout des variables d'environnement
+    if env_vars:
+        for key, value in env_vars.items():
+            cmd.extend(["-e", f"{key}={value}"])
+
+    # 🖼 Ajout de l’image
     cmd.append(image_name)
 
-    # Exécute la commande
+    # 🏁 Ajout de la commande personnalisée
+    cmd.extend(["sh", "-c", command])
+
+    # 🏗 Exécution de la commande
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     if result.returncode == 0:
         print(f"{Fore.GREEN}✅ Conteneur '{container_name}' créé avec succès !{Style.RESET_ALL}")
+        print(f"👉 Pour entrer dans le conteneur : {Fore.YELLOW}docker exec -it {container_name} bash{Style.RESET_ALL}")
     else:
         print(f"{Fore.RED}❌ Erreur lors de la création du conteneur :{Style.RESET_ALL}")
         print(result.stderr)
-
 
 
 def is_docker_installed():

@@ -1,27 +1,40 @@
 {
-  "docker": {
+    "docker": {
       "container_name": "mon-conteneur",
       "image_name": "ubuntu:latest",
-      "volume_name": "mon-volume"
-  },
-  "hypervisors": {
+      "volume_name": "mon-volume",
+      "ports": {
+        "8080": "80",
+        "2222": "22"
+      },
+      "env_vars": {
+        "MY_VAR": "value",
+        "DEBUG": "true"
+      },
+      "command": "bash"
+    },
+    "hypervisors": {
       "VirtualBox": {
-          "vm_name": "MaVM",
-          "ram": 4096,
-          "iso_path": "isos/debian-12.9.0-amd64-netinst.iso",
-          "dry_run": false
+        "vm_name": "MaVM",
+        "ram": 4096,
+        "iso_path": "isos/debian-12.9.0-amd64-netinst.iso",
+        "dry_run": false,
+        "bridge": "eth0"
       },
       "VMware": {
-          "vm_name": "VMwareVM",
-          "ram": 8192,
-          "iso_path": "isos/ubuntu-24.04.1-live-server-amd64.iso",
-          "dry_run": false
+        "vm_name": "VMwareVM",
+        "ram": 8192,
+        "iso_path": "isos/ubuntu-24.04.1-live-server-amd64.iso",
+        "dry_run": false,
+        "bridge": "eth0"
       },
       "QEMU": {
-          "vm_name": "QEMU-VM",
-          "ram": 2048,
-          "iso_path": "isos/ubuntu-24.04.1-live-server-amd64.iso",
-          "dry_run": false
+        "vm_name": "QEMU-VM",
+        "ram": 2048,
+        "iso_path": "isos/ubuntu-24.04.1-live-server-amd64.iso",
+        "dry_run": false,
+        "bridge": "eth0"
       }
+    }
   }
-}
+  
