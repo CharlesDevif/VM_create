@@ -109,8 +109,6 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
         # 2️⃣ Démarrer la VM avec vmrun
         cmd_vm = [[vmware_path, "-T", "ws", "start", vmx_path]]
 
-
-
     elif hypervisor == "QEMU":
         cmd_vm = [[
             paths["QEMU"], "-m", str(ram),

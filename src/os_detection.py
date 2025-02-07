@@ -5,26 +5,53 @@ import subprocess
 from colorama import Fore, Style
 
 def detect_os():
-    """Détecte le système d'exploitation et retourne un nom normalisé."""
+    """Détecte l'OS actuel et retourne un nom normalisé."""
     os_name = platform.system()
 
     if os_name == "Linux":
         try:
+            with open("/etc/os-release", "r") as f:
+                os_info = f.read().lower()
+                if "ubuntu" in os_info:
+                    return "Ubuntu"
+                elif "debian" in os_info:
+                    return "Debian"
+                elif "arch" in os_info:
+                    return "Arch"
+                elif "fedora" in os_info:
+                    return "Fedora"
+                elif "centos" in os_info:
+                    return "CentOS"
+        except FileNotFoundError:
+            pass
+        
+        # Vérifier si on est sur WSL
+        try:
             with open("/proc/version", "r") as f:
-                version_info = f.read().lower()
-                if "microsoft" in version_info:
+                if "microsoft" in f.read().lower():
                     return "WSL"
         except FileNotFoundError:
             pass
+
         return "Linux"
 
-    if os_name == "Darwin":
-        return "MacOS"
+    elif os_name == "Darwin":
+        return "macOS"
+
+    elif os_name == "Windows":
+        try:
+            # Vérifie si Hyper-V est activé
+            result = subprocess.run(["systeminfo"], stdout=subprocess.PIPE, text=True, errors="ignore")
+            if "Hyper-V Requirements" in result.stdout:
+                return "Windows (Hyper-V)"
+        except Exception:
+            pass
+        return "Windows"
 
     return os_name
 
 def check_command_exists(command):
-    """Vérifie si une commande est disponible sur le système."""
+    """Vérifie si une commande est disponible."""
     return shutil.which(command) is not None
 
 def run_command(command):
@@ -32,52 +59,44 @@ def run_command(command):
     try:
         subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         return True
-    except subprocess.CalledProcessError:
-        return False
-    except FileNotFoundError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
 def find_hypervisors():
-    """Détecte les hyperviseurs et Docker si disponible."""
+    """Détecte les hyperviseurs disponibles sur le système."""
     os_type = detect_os()
     hypervisors = {}
-    paths = {}
 
     hypervisor_checks = {
+        "KVM": {
+            "command": ["kvm-ok"],
+            "fallback": "kvm",
+            "paths": ["/usr/sbin/kvm-ok"]
+        },
         "VirtualBox": {
             "command": ["VBoxManage", "-v"],
             "fallback": "VBoxManage",
-            "paths": {
-                "Windows": "C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe",
-                "Linux": "/usr/bin/VBoxManage",
-                "WSL": "/mnt/c/Program Files/Oracle/VirtualBox/VBoxManage.exe",
-                "MacOS": "/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
-            }
+            "paths": ["/usr/bin/VBoxManage", "C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe"]
         },
         "VMware": {
             "command": ["vmrun", "-v"],
             "fallback": "vmrun",
-            "paths": {
-                "Windows": "C:\\Program Files (x86)\\VMware\\VMware Workstation\\vmrun.exe",
-                "Linux": "/usr/bin/vmrun",
-                "WSL": "/mnt/c/Program Files (x86)/VMware/VMware Workstation/vmrun.exe",
-                "MacOS": "/Applications/VMware Fusion.app/Contents/Library/vmrun"
-            }
+            "paths": ["/usr/bin/vmrun", "C:\\Program Files (x86)\\VMware\\VMware Workstation\\vmrun.exe"]
         },
         "QEMU": {
             "command": ["qemu-system-x86_64", "--version"],
             "fallback": "qemu-system-x86_64",
-            "paths": {
-                "Windows": "C:\\Program Files\\qemu\\qemu-system-x86_64.exe",
-                "Linux": "/usr/bin/qemu-system-x86_64",
-                "WSL": "/mnt/c/msys64/ucrt64/bin/qemu-system-x86_64.exe",
-                "MacOS": "/usr/local/bin/qemu-system-x86_64"
-            }
+            "paths": ["/usr/bin/qemu-system-x86_64", "/opt/homebrew/bin/qemu-system-x86_64"]
         },
         "Hyper-V": {
-            "command": ["powershell.exe", "Get-WindowsOptionalFeature", "-FeatureName", "Microsoft-Hyper-V-All"],
+            "command": ["powershell", "Get-WindowsOptionalFeature", "-FeatureName", "Microsoft-Hyper-V-All", "-Online"],
             "fallback": None,
-            "paths": {}
+            "paths": []
+        },
+        "Parallels": {
+            "command": ["prlctl", "--version"],
+            "fallback": "prlctl",
+            "paths": ["/usr/local/bin/prlctl"]
         }
     }
 
@@ -87,50 +106,63 @@ def find_hypervisors():
         found = False
         path_used = None
 
-        # 1️⃣ Vérification avec la commande principale
-        if run_command(check["command"]):
+        # Vérification avec la commande principale
+        if check["command"] and run_command(check["command"]):
             found = True
             path_used = check["command"][0]
 
-        # 2️⃣ Si échec, tenter avec `shutil.which`
+        # Vérification avec `shutil.which`
         if not found and check["fallback"] and check_command_exists(check["fallback"]):
             found = True
             path_used = check["fallback"]
 
-        # 3️⃣ Si toujours échec, essayer les chemins absolus
-        if not found and os_type in check["paths"]:
-            abs_path = check["paths"][os_type]
-            if abs_path and os.path.exists(abs_path):
-                found = True
-                path_used = abs_path
+        # Vérification des chemins connus
+        if not found:
+            for path in check["paths"]:
+                if os.path.exists(path):
+                    found = True
+                    path_used = path
+                    break
 
         if found:
             hypervisors[name] = path_used
-            paths[name] = path_used
             print(f"{Fore.GREEN}[✔] Hyperviseur détecté : {name} ({path_used}){Style.RESET_ALL}")
         else:
             print(f"{Fore.RED}[✖] Hyperviseur non trouvé : {name}{Style.RESET_ALL}")
 
-    return hypervisors, paths  # ✅ Retourne bien 2 valeurs
+    return hypervisors  # ✅ Retourne bien les hyperviseurs trouvés
 
 def is_docker_installed():
     """Vérifie si Docker est installé et en cours d'exécution."""
     if not check_command_exists("docker"):
         return False  # Docker n'est pas installé
 
+    os_type = detect_os()
+
     try:
-        subprocess.run(["docker", "info"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        return True  # Docker fonctionne
-    except subprocess.CalledProcessError:
-        return False  # Docker installé mais service non actif
-
-
-    
+        if os_type == "Windows":
+            result = subprocess.run(["wsl", "-l", "-v"], stdout=subprocess.PIPE, text=True)
+            return "docker-desktop" in result.stdout.lower()
+        elif os_type == "macOS":
+            return check_command_exists("brew") and run_command(["brew", "services", "list"])
+        else:  # Linux
+            status = subprocess.run(["systemctl", "is-active", "docker"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if status.stdout.strip() == "active":
+                return True
+            status = subprocess.run(["service", "docker", "status"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            return "running" in status.stdout.lower()
+    except Exception:
+        return False  # Erreur lors de la vérification
 
 if __name__ == "__main__":
     detected_os = detect_os()
     print(f"{Fore.CYAN}🌍 OS détecté : {detected_os}{Style.RESET_ALL}")
-    
+
     hypervisors = find_hypervisors()
     
     print(f"\n🔍 Hyperviseurs détectés : {Fore.YELLOW}{list(hypervisors.keys())}{Style.RESET_ALL}")
+
+    if is_docker_installed():
+        print(f"{Fore.GREEN}✅ Docker est installé et fonctionne.{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.RED}❌ Docker n'est pas installé ou ne fonctionne pas.{Style.RESET_ALL}")
