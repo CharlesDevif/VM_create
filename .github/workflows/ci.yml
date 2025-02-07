@@ -3,10 +3,10 @@ name: CI - Test Python
 on:
   push:
     branches:
-      - master
+      - '**' # Exécuter les tests sur toutes les branches
   pull_request:
     branches:
-      - master
+      - '**' # Exécuter les tests pour toutes les PRs
 
 jobs:
   test:
@@ -24,7 +24,7 @@ jobs:
       - name: 📦 Installation des dépendances
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: ✅ Exécution des tests Pytest
         run: pytest --maxfail=3 --disable-warnings -v
