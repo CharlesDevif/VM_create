@@ -66,10 +66,50 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
         cmd_vm = [
             [vbox_path, "createvm", "--name", name, "--register"],
             [vbox_path, "modifyvm", name, "--memory", str(ram)],
+            [vbox_path, "modifyvm", name, "--ioapic", "off"],  # IO-APIC doit rester activé
+            [vbox_path, "modifyvm", name, "--apic", "on"],  # APIC doit rester activé
             [vbox_path, "storagectl", name, "--name", "SATA Controller", "--add", "sata", "--controller", "IntelAhci"],
             [vbox_path, "storageattach", name, "--storagectl", "SATA Controller", "--port", "0", "--device", "0", "--type", "hdd", "--medium", converted_disk],
             [vbox_path, "storageattach", name, "--storagectl", "SATA Controller", "--port", "1", "--device", "0", "--type", "dvddrive", "--medium", iso_path],
+            [vbox_path, "modifyvm", name, "--boot1", "dvd"],  # Priorité boot sur l'ISO
+            [vbox_path, "modifyvm", name, "--biosbootmenu", "messageandmenu"],  # Active le menu BIOS
         ]
+    elif hypervisor == "VMware":
+        vmware_path = paths["VMware"]
+        converted_disk = convert_disk_format(qcow2_disk, f"{name}.vmdk", "vmdk")
+        
+        # 1️⃣ Créer un fichier VMX de base
+        vmx_content = f"""
+        .encoding = "UTF-8"
+        config.version = "8"
+        virtualHW.version = "16"
+        displayName = "{name}"
+        guestOS = "ubuntu-64"
+        memsize = "{ram}"
+        numvcpus = "2"
+        scsi0.present = "TRUE"
+        scsi0.virtualDev = "lsilogic"
+        sata0.present = "TRUE"
+        sata0:0.present = "TRUE"
+        sata0:0.fileName = "{converted_disk}"
+        sata0:0.deviceType = "disk"
+        ide1:0.present = "TRUE"
+        ide1:0.fileName = "{iso_path}"
+        ide1:0.deviceType = "cdrom-image"
+        ethernet0.present = "TRUE"
+        ethernet0.connectionType = "nat"
+        """
+        
+        vmx_path = f"{name}.vmx"
+        with open(vmx_path, "w") as vmx_file:
+            vmx_file.write(vmx_content.strip())
+
+        logging.info(f"✅ Fichier VMX créé : {vmx_path}")
+
+        # 2️⃣ Démarrer la VM avec vmrun
+        cmd_vm = [[vmware_path, "-T", "ws", "start", vmx_path]]
+
+
 
     elif hypervisor == "QEMU":
         cmd_vm = [[
@@ -77,7 +117,7 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False):
             "-hda", qcow2_disk, "-cdrom", iso_path, "-boot", "d",
             "-vga", "virtio",
             "-display", "gtk,gl=on",
-            "-accel", "tcg",
+            "-accel", "tcg",  # 🔄 Utilise l'émulation logicielle si KVM est absent
             "-smp", "2",
             "-usb", "-device", "usb-tablet"
         ]]
