@@ -24,13 +24,14 @@ def test_is_docker_installed(mocker, docker_installed, expected):
 def test_create_docker_container_no_volume(mocker):
     """✅ Teste la création d'un conteneur Docker sans volume."""
     mock_run = mocker.patch("subprocess.run")
-    
+
     create_docker_container("test-container", "ubuntu:latest", "")
 
-    mock_run.assert_called_once_with(
-        ["docker", "run", "-d", "--name", "test-container", "ubuntu:latest"],
-        check=True
-    )
+    # Vérification de la suppression de l'ancien conteneur
+    mock_run.assert_any_call(["docker", "rm", "-f", "test-container"], stdout=-1, stderr=-1)
+
+    # Vérifie que le conteneur est bien lancé
+    mock_run.assert_any_call(["docker", "run", "-d", "--name", "test-container", "ubuntu:latest"], stdout=-1, stderr=-1, text=True)
 
 def test_create_docker_container_with_volume(mocker):
     """✅ Teste la création d'un conteneur Docker avec un volume."""
@@ -38,9 +39,9 @@ def test_create_docker_container_with_volume(mocker):
 
     create_docker_container("test-container", "ubuntu:latest", "test-volume")
 
-    mock_run.assert_called_once_with(
-        ["docker", "run", "-d", "--name", "test-container", "-v", "test-volume:/data", "ubuntu:latest"],
-        check=True
-    )
+    # Vérification de la suppression de l'ancien conteneur
+    mock_run.assert_any_call(["docker", "rm", "-f", "test-container"], stdout=-1, stderr=-1)
 
+    # Vérifie que le conteneur est bien lancé 
+    mock_run.assert_any_call(["docker", "run", "-d", "--name", "test-container", "-v", "test-volume:/data", "ubuntu:latest"], stdout=-1, stderr=-1, text=True)
 

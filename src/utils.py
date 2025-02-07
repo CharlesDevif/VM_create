@@ -129,13 +129,13 @@ def vm_exists(hypervisor, name, paths):
 
 
 def create_docker_container(container_name, image_name, volume_name=""):
-    """Crée un conteneur Docker et s'assure qu'il reste actif."""
+    """Crée un conteneur Docker sans commande de maintien."""
     print(f"{Fore.CYAN}🚀 Création du conteneur Docker '{container_name}'...{Style.RESET_ALL}")
 
-    # Vérifie si un conteneur du même nom existe déjà et le supprime
+    # Supprime l'ancien conteneur s'il existe
     subprocess.run(["docker", "rm", "-f", container_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    # Commande de base
+    # Commande de base pour exécuter le conteneur
     cmd = ["docker", "run", "-d", "--name", container_name]
 
     # Ajoute un volume si spécifié
@@ -145,34 +145,14 @@ def create_docker_container(container_name, image_name, volume_name=""):
     # Ajoute l’image
     cmd.append(image_name)
 
-    # Vérifie quelle commande de maintien fonctionne
-    possible_commands = ["sleep infinity", "tail -f /dev/null", "while true; do sleep 3600; done"]
-    selected_command = None
-
-    for command in possible_commands:
-        check_command = subprocess.run(
-            ["docker", "run", "--rm", image_name, "sh", "-c", f"command -v {command.split()[0]}"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
-        if check_command.returncode == 0:
-            selected_command = command
-            break
-
-    if selected_command is None:
-        print(f"{Fore.RED}❌ Aucune commande de maintien trouvée dans l'image Docker !{Style.RESET_ALL}")
-        return
-
-    cmd.extend(["sh", "-c", selected_command])
-
     # Exécute la commande
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     if result.returncode == 0:
-        print(f"{Fore.GREEN}✅ Conteneur '{container_name}' créé et en cours d'exécution.{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}✅ Conteneur '{container_name}' créé avec succès !{Style.RESET_ALL}")
     else:
         print(f"{Fore.RED}❌ Erreur lors de la création du conteneur :{Style.RESET_ALL}")
         print(result.stderr)
-
 
 
 
