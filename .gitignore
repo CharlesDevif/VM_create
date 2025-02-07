@@ -5,3 +5,12 @@ __pycache__/
 pytest_cache/
 vmware.log
 isos/
+*.qcow2
+*.scoreboard
+*.lck/
+*.vmdk
+*.vmsd
+*.vmx
+*.vmxf
+nvram
+*.log
