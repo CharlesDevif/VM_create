@@ -1,8 +1,12 @@
 import os
 import platform
 import shutil
+import psutil
+import socket
 import subprocess
 from colorama import Fore, Style
+
+
 
 def detect_os():
     """Détecte le système d'exploitation et retourne un nom normalisé."""
@@ -23,6 +27,30 @@ def detect_os():
 
     return os_name
 
+def get_default_interface():
+    """
+    Détecte automatiquement l'interface réseau par défaut en établissant une connexion
+    vers une adresse publique (ici 8.8.8.8) et en récupérant l'adresse IP locale utilisée.
+    Ensuite, parcourt les interfaces pour retrouver celle qui possède cette adresse IP.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # On se connecte vers Google DNS (cela n'envoie pas réellement de données)
+        s.connect(('8.8.8.8', 80))
+        default_ip = s.getsockname()[0]
+    except Exception:
+        default_ip = None
+    finally:
+        s.close()
+
+    if default_ip:
+        interfaces = psutil.net_if_addrs()
+        for iface, addrs in interfaces.items():
+            for addr in addrs:
+                if addr.family == socket.AF_INET and addr.address == default_ip:
+                    return iface
+    return None
+    
 def check_command_exists(command):
     """Vérifie si une commande est disponible sur le système."""
     return shutil.which(command) is not None
