@@ -4,32 +4,29 @@ import subprocess
 import json
 import argparse
 from colorama import Fore, Style, init
-from os_detection import detect_os, find_hypervisors, get_default_interface
+from os_detection import detect_os, find_hypervisors
 from utils import (
     prompt_input, get_available_memory, create_qcow2_disk, convert_disk_format,
-    list_local_isos, download_iso, vm_exists, choose_from_list, is_docker_installed, create_docker_container
+    list_local_isos, download_iso, vm_exists, choose_from_list,
+    is_docker_installed, create_docker_container,detect_linux_bridge, create_linux_bridge
 )
+from network import (detect_bridgeable_interface,create_tap_interface)
 
 # Initialisation de Colorama pour Windows
 init(autoreset=True)
 
 def load_config(file_path="config.json"):
-    """Charge la configuration depuis un fichier JSON si '--batch' est utilisé."""
     if os.path.exists(file_path):
         with open(file_path, "r") as file:
             return json.load(file)
     return {}
 
 def parse_arguments():
-    """Analyse les arguments de la ligne de commande."""
-    parser = argparse.ArgumentParser(
-        description="Gestionnaire de VMs et conteneurs Docker."
-    )
+    parser = argparse.ArgumentParser(description="Gestionnaire de VMs et conteneurs Docker.")
     parser.add_argument("--batch", action="store_true", help="Mode automatique avec configuration prédéfinie.")
     parser.add_argument("--config", type=str, default="config.json", help="Chemin du fichier de configuration JSON.")
-    # Ajout de l'argument pour l'interface de bridge
-    parser.add_argument("--bridge", type=str, default=None,
-                        help="Interface de bridge à utiliser (sinon NAT sera utilisé)")
+    parser.add_argument("--bridge", type=str, default=None, help="Interface de bridge à utiliser (sinon NAT sera utilisé)")
+    parser.add_argument("--auto-bridge", action="store_true", help="Utilise automatiquement une interface bridge sans interaction")
     return parser.parse_args()
 
 def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False, bridge_interface=None):
@@ -123,13 +120,17 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False, bridg
     elif hypervisor == "QEMU":
         # Pour QEMU, configuration de la partie réseau en mode bridge ou NAT
         if bridge_interface:
-            # Pour le mode bridge, il faut disposer d'une interface TAP déjà configurée et associée à un bridge
-            net_params = [
-                "-netdev", f"tap,id=net0,ifname={bridge_interface},script=no,downscript=no",
-                "-device", "virtio-net-pci,netdev=net0"
-            ]
-        else:
-            net_params = ["-net", "nic", "-net", "user"]
+            from network import create_tap_interface
+            tap_iface = create_tap_interface()
+            if not tap_iface:
+                print(f"{Fore.RED}❌ Échec de la configuration réseau. Passage en NAT.{Style.RESET_ALL}")
+                net_params = ["-net", "nic", "-net", "user"]
+            else:
+                net_params = [
+                    "-netdev", f"tap,id=net0,ifname={tap_iface},script=no,downscript=no",
+                    "-device", "virtio-net-pci,netdev=net0"
+                ]
+
 
         cmd_vm = [[
             paths["QEMU"], "-m", str(ram),
@@ -154,27 +155,22 @@ def create_vm(hypervisor, name, arch, ram, iso_path, paths, dry_run=False, bridg
 
     print(f"{Fore.GREEN}✅ VM '{name}' créée avec succès.{Style.RESET_ALL}")
 
-if __name__ == "__main__":
+
+def main():
     args = parse_arguments()
-
-    # Charger la configuration si '--batch' est activé
     config = load_config(args.config) if args.batch else {}
-
     os_type = detect_os()
 
-    # Étape 1 : Choix entre Docker et Hyperviseur (toujours demandé)
     mode = choose_from_list(
         f"{Fore.YELLOW}Voulez-vous créer une VM ou un conteneur Docker ?{Style.RESET_ALL}",
         ["docker", "hypervisor"]
     )
 
     if mode == "docker":
-        # Vérification de Docker
         if not is_docker_installed():
             print(f"{Fore.RED}❌ Docker n'est pas installé ou le service n'est pas en cours d'exécution.{Style.RESET_ALL}")
             exit(1)
 
-        # Chargement de la config Docker en mode '--batch'
         if args.batch:
             docker_config = config.get("docker", {})
             container_name = docker_config.get("container_name", "mon-conteneur")
@@ -184,86 +180,68 @@ if __name__ == "__main__":
             env_vars = docker_config.get("env_vars", {})
             command = docker_config.get("command", "bash")
         else:
-            container_name = prompt_input(f"{Fore.CYAN}Nom du conteneur Docker{Style.RESET_ALL}", default="mon-conteneur")
-            image_name = prompt_input(f"{Fore.CYAN}Image Docker à utiliser{Style.RESET_ALL}", default="ubuntu:latest")
-            volume_name = prompt_input(f"{Fore.CYAN}Nom du volume (laisser vide pour pas de volume){Style.RESET_ALL}", default="")
-            ports = {}  # Ajout des ports en mode interactif
-            while True:
-                add_port = prompt_input(f"{Fore.CYAN}Voulez-vous ajouter un port ? (oui/non){Style.RESET_ALL}", default="non").lower()
-                if add_port == "oui":
-                    host_port = prompt_input(f"{Fore.CYAN}Port hôte{Style.RESET_ALL}", required=True)
-                    container_port = prompt_input(f"{Fore.CYAN}Port conteneur{Style.RESET_ALL}", required=True)
-                    ports[host_port] = container_port
-                else:
-                    break
+            container_name = prompt_input("Nom du conteneur Docker", default="mon-conteneur")
+            image_name = prompt_input("Image Docker à utiliser", default="ubuntu:latest")
+            volume_name = prompt_input("Nom du volume (laisser vide pour pas de volume)", default="")
+            ports = {}
+            while prompt_input("Ajouter un port ? (oui/non)", default="non").lower() == "oui":
+                host_port = prompt_input("Port hôte", required=True)
+                container_port = prompt_input("Port conteneur", required=True)
+                ports[host_port] = container_port
 
-            env_vars = {}  # Ajout des variables d'environnement en mode interactif
-            while True:
-                add_env = prompt_input(f"{Fore.CYAN}Voulez-vous ajouter une variable d'environnement ? (oui/non){Style.RESET_ALL}", default="non").lower()
-                if add_env == "oui":
-                    key = prompt_input(f"{Fore.CYAN}Nom de la variable{Style.RESET_ALL}", required=True)
-                    value = prompt_input(f"{Fore.CYAN}Valeur de la variable{Style.RESET_ALL}", required=True)
-                    env_vars[key] = value
-                else:
-                    break
+            env_vars = {}
+            while prompt_input("Ajouter une variable d'environnement ? (oui/non)", default="non").lower() == "oui":
+                key = prompt_input("Nom de la variable", required=True)
+                value = prompt_input("Valeur de la variable", required=True)
+                env_vars[key] = value
 
-            command = prompt_input(f"{Fore.CYAN}Commande à exécuter dans le conteneur{Style.RESET_ALL}", default="bash")
+            command = prompt_input("Commande à exécuter dans le conteneur", default="bash")
 
-        print(f"{Fore.CYAN}🚀 Lancement du conteneur Docker...{Style.RESET_ALL}")
         create_docker_container(container_name, image_name, volume_name, ports, env_vars, command)
-        print(f"{Fore.GREEN}✅ Conteneur '{container_name}' créé avec succès !{Style.RESET_ALL}")
-        exit(0)
+        return
 
     elif mode == "hypervisor":
-        # Détection des hyperviseurs disponibles
         available_hypervisors, hypervisor_paths = find_hypervisors()
         if not available_hypervisors:
             print(f"{Fore.RED}❌ Aucun hyperviseur trouvé. Veuillez en installer un.{Style.RESET_ALL}")
             exit(1)
 
-        # Choix de l'hyperviseur
         hypervisor = choose_from_list("Choisissez un hyperviseur", list(available_hypervisors.keys()))
 
         if args.batch:
             hypervisor_config = config.get("hypervisors", {}).get(hypervisor, {})
             vm_name = hypervisor_config.get("vm_name", "MaVM")
             ram = hypervisor_config.get("ram", 2048)
-            iso_path = hypervisor_config.get("iso_path", "isos/ubuntu-24.04.1-live-server-amd64.iso")
+            iso_path = hypervisor_config.get("iso_path", "isos/ubuntu.iso")
             dry_run = hypervisor_config.get("dry_run", False)
             bridge_interface = hypervisor_config.get("bridge", None)
         else:
-            vm_name = prompt_input(f"{Fore.CYAN}Nom de la VM{Style.RESET_ALL}", default="MaVM")
-            ram = int(prompt_input(f"{Fore.CYAN}Mémoire RAM (Mo){Style.RESET_ALL}", default="2048"))
+            vm_name = prompt_input("Nom de la VM", default="MaVM")
+            ram = int(prompt_input("Mémoire RAM (Mo)", default="2048"))
             iso_list = list_local_isos()
-            if iso_list:
-                iso_path = choose_from_list(f"{Fore.CYAN}Choisissez une ISO{Style.RESET_ALL}", iso_list)
-                iso_path = os.path.join("isos", iso_path)
-            else:
-                print(f"{Fore.YELLOW}⚠️ Aucune ISO trouvée. Téléchargement en cours...{Style.RESET_ALL}")
-                iso_path = download_iso()
-            dry_run = prompt_input(f"{Fore.CYAN}Mode simulation ? (oui/non){Style.RESET_ALL}", default="non").lower() == "oui"
-            
-            # Si aucun argument --bridge n'est passé, on essaie de détecter automatiquement l'interface par défaut
+            iso_path = os.path.join("isos", choose_from_list("Choisissez une ISO", iso_list)) if iso_list else download_iso()
+            dry_run = prompt_input("Mode simulation ? (oui/non)", default="non").lower() == "oui"
+
             if args.bridge:
                 bridge_interface = args.bridge
             else:
-                detected_iface = get_default_interface()
-                if detected_iface:
-                    use_auto = choose_from_list(
-                        f"{Fore.CYAN}Interface par défaut détectée : {detected_iface}. Voulez-vous l'utiliser ?{Style.RESET_ALL}",
-                        ["Oui", "Non"]
-                    )
-                    if use_auto.lower() == "oui":
-                        bridge_interface = detected_iface
+                bridge_interface = detect_linux_bridge()
+                if not bridge_interface:
+                    default_iface = detect_bridgeable_interface()
+                    if default_iface:
+                        print(f"{Fore.YELLOW}🔧 Aucun bridge trouvé. Tentative de création d’un bridge 'br0' avec {default_iface}...{Style.RESET_ALL}")
+                        if create_linux_bridge("br0", default_iface):
+                            bridge_interface = "br0"
+                            print(f"{Fore.GREEN}✅ Bridge 'br0' créé avec succès !{Style.RESET_ALL}")
+                        else:
+                            print(f"{Fore.RED}❌ Échec de la création du bridge. Utilisation du mode NAT par défaut.{Style.RESET_ALL}")
+                            bridge_interface = None
                     else:
-                        bridge_interface = prompt_input(f"{Fore.CYAN}Entrez le nom de l'interface de bridge{Style.RESET_ALL}", required=True)
-                else:
-                    bridge_interface = prompt_input(f"{Fore.CYAN}Aucune interface par défaut détectée. Entrez le nom de l'interface de bridge{Style.RESET_ALL}", required=True)
+                        print(f"{Fore.RED}❌ Aucun bridge ni interface par défaut détectée. Utilisation du mode NAT.{Style.RESET_ALL}")
+                        bridge_interface = None
 
         print(f"{Fore.CYAN}🚀 Création de la VM '{vm_name}' sous {hypervisor}...{Style.RESET_ALL}")
-        # On transmet l'option bridge selon le choix effectué
         create_vm(hypervisor, vm_name, "x86_64", ram, iso_path, hypervisor_paths, dry_run=dry_run, bridge_interface=bridge_interface)
 
-    else:
-        print(f"{Fore.RED}❌ Erreur : Mode non reconnu. Utilisez 'docker' ou 'hypervisor'{Style.RESET_ALL}")
-        exit(1)
+if __name__ == "__main__":
+    main()

@@ -4,13 +4,66 @@ import logging
 import psutil
 import requests
 from colorama import Fore, Style
+from bs4 import BeautifulSoup
+from tqdm import tqdm
+
+
 
 
 # Configuration du logging
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
+def detect_linux_bridge():
+    """Détecte automatiquement un bridge réseau actif comme 'br0' ou 'virbr0'."""
+    bridges = []
+    blacklist = ("lo", "docker", "veth", "vmnet", "tap", "tun", "wl")
+
+    for iface, stats in psutil.net_if_stats().items():
+        if stats.isup and any(prefix in iface for prefix in ("br", "virbr")) and not any(bad in iface for bad in blacklist):
+            bridges.append(iface)
+
+    return bridges[0] if bridges else None
+
+def create_linux_bridge(bridge_name="br0", physical_iface=None):
+    """Crée un bridge Linux avec l'interface physique donnée."""
+    try:
+        subprocess.run(["sudo", "ip", "link", "add", bridge_name, "type", "bridge"], check=True)
+        subprocess.run(["sudo", "ip", "link", "set", bridge_name, "up"], check=True)
+        if physical_iface:
+            subprocess.run(["sudo", "ip", "link", "set", physical_iface, "master", bridge_name], check=True)
+            subprocess.run(["sudo", "ip", "link", "set", physical_iface, "up"], check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Erreur lors de la création du bridge : {e}")
+        return False
+
+
+def get_latest_debian_netinst_url():
+    """
+    Scrape la page Debian pour récupérer dynamiquement l'URL de la dernière ISO netinst AMD64.
+    """
+    base_url = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/"
+    try:
+        response = requests.get(base_url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Trouver le lien vers une ISO netinst
+        for link in soup.find_all("a"):
+            href = link.get("href")
+            if href and href.endswith("-netinst.iso"):
+                full_url = base_url + href
+                logging.info(f"🔗 Dernière ISO détectée : {full_url}")
+                return full_url
+
+        logging.warning("⚠️ Aucune ISO netinst trouvée.")
+        return None
+    except requests.RequestException as e:
+        logging.error(f"❌ Erreur lors de la récupération de l'ISO Debian : {e}")
+        return None
+
+
 ISO_FOLDER = "isos/"
-DEFAULT_ISO_URL = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.9.0-amd64-netinst.iso"
 
 def get_available_memory():
     """Retourne la mémoire vive disponible en Mo."""
@@ -92,19 +145,41 @@ def list_local_isos():
         os.makedirs(ISO_FOLDER)
     return [f for f in os.listdir(ISO_FOLDER) if f.endswith(".iso")]
 
-def download_iso(url=DEFAULT_ISO_URL):
-    """Télécharge une ISO à partir d'une URL."""
-    logging.info(f"📥 Téléchargement de l'ISO depuis {url}...")
+def download_iso(url=None):
+    """
+    Télécharge une ISO à partir d'une URL (défaut = Debian netinst dernière version),
+    avec une barre de progression grâce à tqdm.
+    """
+    if url is None:
+        url = get_latest_debian_netinst_url()
+        if url is None:
+            logging.error("❌ Impossible de récupérer l'URL ISO automatiquement.")
+            return None
 
+    logging.info(f"📥 Téléchargement de l'ISO depuis {url}...")
     iso_path = os.path.join(ISO_FOLDER, os.path.basename(url))
+
     try:
-        response = requests.get(url, stream=True)
+        response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()
-        with open(iso_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
+
+        total_size = int(response.headers.get("content-length", 0))
+        block_size = 8192  # 8 KB
+
+        with open(iso_path, "wb") as f, tqdm(
+            total=total_size,
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+            desc="Téléchargement ISO"
+        ) as pbar:
+            for chunk in response.iter_content(chunk_size=block_size):
                 f.write(chunk)
+                pbar.update(len(chunk))
+
         logging.info(f"✅ ISO téléchargée : {iso_path}")
         return iso_path
+
     except requests.RequestException as e:
         logging.error(f"❌ Erreur lors du téléchargement de l'ISO : {e}")
         return None

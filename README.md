@@ -9,6 +9,13 @@ Ce projet fournit un outil en ligne de commande pour créer des machines virtuel
 ## Installation
 1. Clonez le dépôt puis placez-vous à sa racine.
 2. (Optionnel) Créez un environnement virtuel.
+
+python3 -m venv .venv
+
+3. ✅ Active l’environnement virtuel
+
+source .venv/bin/activate
+
 3. Installez les dépendances Python :
    ```bash
    python -m pip install -r requirements.txt

@@ -4,3 +4,5 @@ psutil
 colorama
 prompt_toolkit
 requests
+beautifulsoup4
+tqdm
